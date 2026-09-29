@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parent Role</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 400px; width: 100%; margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="box" style="max-width: 600px;">
+        <h1>Parent View</h1>
+        <p>Tracking family: <strong>{{ username }}</strong></p>
+        <h2 id="location">Waiting for data...</h2>
+        
+        <div id="map"></div>
+        <br>
+        <a id="maps-link" href="#" target="_blank" class="button-link" style="display:none; background:#2ecc71;">Open in Google Maps</a>
+        <p><a href="/logout" class="button-link">Logout</a></p>
+    </div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    let map = null;
+    let marker = null;
+    let parentLat = null;
+    let parentLng = null;
+
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                  
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return (R * c).toFixed(2); // Returns distance in km rounded to 2 decimals
+    }
+
+    // Continuously track the parent's location locally
+    if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+            (position) => {
+                parentLat = position.coords.latitude;
+                parentLng = position.coords.longitude;
+            },
+            (error) => console.error("Error getting parent location:", error),
+            { enableHighAccuracy: true }
+        );
+    } else {
+        console.error("Geolocation is not supported by this browser.");
+    }
+
+    function fetchLocation() {
+        fetch('/get_location')
+            .then(response => response.json())
+            .then(data => {
+                if (data.lat !== null && data.lng !== null && data.lat !== undefined) {
+                    let statusText = `Location found!`;
+
+                    // If we have the parent's location, calculate and append the distance
+                    if (parentLat !== null && parentLng !== null) {
+                        const distance = calculateDistance(parentLat, parentLng, data.lat, data.lng);
+                        statusText += ` Distance to child: ${distance} km.`;
+                    } else {
+                        statusText += ` (Acquiring parent location for distance...)`;
+                    }
+
+                    document.getElementById('location').innerText = statusText;
+                    
+                    const link = document.getElementById('maps-link');
+                    link.href = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
+                    link.style.display = 'inline-block';
+
+                    const mapDiv = document.getElementById('map');
+                    mapDiv.style.display = 'block';
+
+                    if (!map) {
+                        map = L.map('map').setView([data.lat, data.lng], 15);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '© OpenStreetMap contributors'
+                        }).addTo(map);
+                        marker = L.marker([data.lat, data.lng]).addTo(map);
+                    } else {
+                        map.setView([data.lat, data.lng]);
+                        marker.setLatLng([data.lat, data.lng]);
+                    }
+                } else {
+                    // If null, it means child disconnected, hide map
+                    document.getElementById('location').innerText = 'Child is not actively sharing location right now.';
+                    document.getElementById('map').style.display = 'none';
+                    document.getElementById('maps-link').style.display = 'none';
+                }
+            })
+            .catch(err => console.error(err));
+    }
+    
+    setInterval(fetchLocation, 2000);
+    fetchLocation();
+</script>
+</body>
+</html>

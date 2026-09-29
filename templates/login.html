@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="box">
+        <h2>Login</h2>
+        <form action="/login" method="POST">
+            <input type="text" name="username" placeholder="Family Username" required><br><br>
+            <input type="password" name="password" placeholder="Password" required><br><br>
+            <label><input type="radio" name="role" value="parent" checked> Login as Parent (View Map)</label><br>
+            <label><input type="radio" name="role" value="child"> Login as Child (Share Location)</label><br><br>
+            <button type="submit">Login</button>
+        </form>
+        <p>Don't have an account? <a href="/signup">Sign Up</a></p>
+    </div>
+</body>
+</html>
+

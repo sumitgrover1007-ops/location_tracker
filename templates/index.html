@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Location Tracker</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Location Tracker</h1>
+    
+    <div class="box">
+        <h3>Child: Start Tracking</h3>
+        <form action="/child" method="GET">
+            <input type="text" name="code" placeholder="Create a unique code" required>
+            <button type="submit">Start Tracking</button>
+        </form>
+    </div>
+
+    <div class="box">
+        <h3>Parent: Track Child</h3>
+        <form action="/parent" method="GET">
+            <input type="text" name="code" placeholder="Enter child's code" required>
+            <button type="submit">Track</button>
+        </form>
+    </div>
+</body>
+</html>
