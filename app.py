@@ -28,6 +28,10 @@ def init_db():
             last_updated REAL
         )
     ''')
+    # Older databases don't have the accuracy column yet, so add it once.
+    columns = [row['name'] for row in conn.execute('PRAGMA table_info(locations)')]
+    if 'accuracy' not in columns:
+        conn.execute('ALTER TABLE locations ADD COLUMN accuracy REAL')
     conn.commit()
     conn.close()
 
@@ -116,16 +120,18 @@ def update_location():
     username = session['username']
     lat = data.get('lat')
     lng = data.get('lng')
+    accuracy = data.get('accuracy')  # error radius in meters, sent by the child's phone
     current_time = time.time()
     
     conn = get_db_connection()
     # Insert or update
     conn.execute('''
-        INSERT INTO locations (username, lat, lng, last_updated) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO locations (username, lat, lng, accuracy, last_updated) 
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(username) DO UPDATE SET 
-        lat=excluded.lat, lng=excluded.lng, last_updated=excluded.last_updated
-    ''', (username, lat, lng, current_time))
+        lat=excluded.lat, lng=excluded.lng,
+        accuracy=excluded.accuracy, last_updated=excluded.last_updated
+    ''', (username, lat, lng, accuracy, current_time))
     conn.commit()
     conn.close()
     
@@ -145,10 +151,14 @@ def get_location():
     # Check if location was updated in the last 15 seconds.
     # If not, it means the child is not actively sharing.
     if row and (time.time() - row['last_updated'] <= 15):
-        return jsonify({"lat": row['lat'], "lng": row['lng']})
+        return jsonify({
+            "lat": row['lat'],
+            "lng": row['lng'],
+            "accuracy": row['accuracy'],
+            "age": round(time.time() - row['last_updated'], 1)  # seconds since last update
+        })
         
     return jsonify({"lat": None, "lng": None})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-    
