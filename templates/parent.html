@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         #map { height: 400px; width: 100%; margin-top: 20px; display: none; }
+        #details { font-size: 14px; color: #444; }
     </style>
 </head>
 <body>
@@ -13,6 +14,8 @@
         <h1>Parent View</h1>
         <p>Tracking family: <strong>{{ username }}</strong></p>
         <h2 id="location">Waiting for data...</h2>
+        <p id="details"></p>
+        <label><input type="checkbox" id="follow" checked> Keep map centered on child</label>
         
         <div id="map"></div>
         <br>
@@ -23,32 +26,53 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
     let map = null;
-    let marker = null;
+    let childMarker = null;
+    let childCircle = null;   // shows the child's GPS error radius
+    let parentMarker = null;
+    let trail = null;         // line showing where the child has walked
+    let lastTrailPoint = null;
+
     let parentLat = null;
     let parentLng = null;
+    let parentAcc = null;
 
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371; // Earth's radius in kilometers
-        const dLat = (lat2 - lat1) * (Math.PI / 180);
-        const dLon = (lon2 - lon1) * (Math.PI / 180);
-        
+    // Distance in METERS between two GPS points (haversine formula)
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000; // Earth's radius in meters
+        const toRad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * toRad;
+        const dLon = (lon2 - lon1) * toRad;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+                  Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
                   Math.sin(dLon / 2) * Math.sin(dLon / 2);
-                  
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return (R * c).toFixed(2); // Returns distance in km rounded to 2 decimals
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // Continuously track the parent's location locally
+    function formatDistance(m) {
+        if (m < 10) return m.toFixed(1) + ' m';
+        if (m < 1000) return Math.round(m) + ' m';
+        return (m / 1000).toFixed(2) + ' km';
+    }
+
+    // Parent's own location, always a fresh reading
     if (navigator.geolocation) {
         navigator.geolocation.watchPosition(
             (position) => {
                 parentLat = position.coords.latitude;
                 parentLng = position.coords.longitude;
+                parentAcc = position.coords.accuracy;
+                if (map) {
+                    if (!parentMarker) {
+                        parentMarker = L.circleMarker([parentLat, parentLng], {
+                            radius: 7, color: '#0066cc', fillColor: '#3399ff', fillOpacity: 0.9
+                        }).addTo(map).bindTooltip('You');
+                    } else {
+                        parentMarker.setLatLng([parentLat, parentLng]);
+                    }
+                }
             },
             (error) => console.error("Error getting parent location:", error),
-            { enableHighAccuracy: true }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
         );
     } else {
         console.error("Geolocation is not supported by this browser.");
@@ -59,17 +83,29 @@
             .then(response => response.json())
             .then(data => {
                 if (data.lat !== null && data.lng !== null && data.lat !== undefined) {
-                    let statusText = `Location found!`;
+                    const childAcc = data.accuracy;   // may be null for old data
+                    let statusText = 'Child location live.';
+                    let errText = '';
 
-                    // If we have the parent's location, calculate and append the distance
+                    // Distance, with the combined error of both phones
                     if (parentLat !== null && parentLng !== null) {
-                        const distance = calculateDistance(parentLat, parentLng, data.lat, data.lng);
-                        statusText += ` Distance to child: ${distance} km.`;
+                        const d = distanceMeters(parentLat, parentLng, data.lat, data.lng);
+                        statusText = `Child is ${formatDistance(d)} away`;
+                        if (childAcc !== null && childAcc !== undefined && parentAcc !== null) {
+                            const err = Math.sqrt(childAcc * childAcc + parentAcc * parentAcc);
+                            statusText += ` (± ${Math.round(err)} m)`;
+                        }
                     } else {
-                        statusText += ` (Acquiring parent location for distance...)`;
+                        statusText += ' (Acquiring your location for distance...)';
                     }
-
                     document.getElementById('location').innerText = statusText;
+
+                    let details = `Child: ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}`;
+                    if (childAcc !== null && childAcc !== undefined) {
+                        details += ` · GPS accuracy ±${Math.round(childAcc)} m`;
+                    }
+                    details += ` · updated ${Math.round(data.age)} s ago`;
+                    document.getElementById('details').innerText = details;
                     
                     const link = document.getElementById('maps-link');
                     link.href = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
@@ -78,19 +114,40 @@
                     const mapDiv = document.getElementById('map');
                     mapDiv.style.display = 'block';
 
+                    const pos = [data.lat, data.lng];
+                    const radius = (childAcc !== null && childAcc !== undefined) ? childAcc : 0;
+
                     if (!map) {
-                        map = L.map('map').setView([data.lat, data.lng], 15);
+                        map = L.map('map').setView(pos, 18);
                         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            maxZoom: 19,
                             attribution: '© OpenStreetMap contributors'
                         }).addTo(map);
-                        marker = L.marker([data.lat, data.lng]).addTo(map);
+                        childMarker = L.marker(pos).addTo(map).bindTooltip('Child');
+                        childCircle = L.circle(pos, { radius: radius, color: '#e67e22', weight: 1 }).addTo(map);
+                        trail = L.polyline([pos], { color: '#e74c3c', weight: 3 }).addTo(map);
+                        lastTrailPoint = pos;
                     } else {
-                        map.setView([data.lat, data.lng]);
-                        marker.setLatLng([data.lat, data.lng]);
+                        map.invalidateSize();  // in case the map was hidden before
+                        childMarker.setLatLng(pos);
+                        childCircle.setLatLng(pos);
+                        childCircle.setRadius(radius);
+
+                        // Add to the walking trail only when the child moved more than 3 m
+                        // (smaller changes are mostly GPS jitter, not real movement)
+                        if (distanceMeters(lastTrailPoint[0], lastTrailPoint[1], data.lat, data.lng) > 3) {
+                            trail.addLatLng(pos);
+                            lastTrailPoint = pos;
+                        }
+
+                        if (document.getElementById('follow').checked) {
+                            map.panTo(pos);
+                        }
                     }
                 } else {
                     // If null, it means child disconnected, hide map
                     document.getElementById('location').innerText = 'Child is not actively sharing location right now.';
+                    document.getElementById('details').innerText = '';
                     document.getElementById('map').style.display = 'none';
                     document.getElementById('maps-link').style.display = 'none';
                 }
@@ -98,7 +155,7 @@
             .catch(err => console.error(err));
     }
     
-    setInterval(fetchLocation, 2000);
+    setInterval(fetchLocation, 1000);   // check every second
     fetchLocation();
 </script>
 </body>
