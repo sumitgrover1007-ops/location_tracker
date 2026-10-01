@@ -47,7 +47,7 @@
             fetch('/update_location', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lat: lastLat, lng: lastLng })
+                body: JSON.stringify({ lat: lastLat, lng: lastLng, accuracy: lastAccuracy })
             });
         }
 
@@ -62,8 +62,8 @@
                 maximumAge: 0,     // never reuse an old cached position
                 timeout: 15000
             });
-            // Send heartbeat every 5 seconds so parent knows we are still active and sharing
-            setInterval(updateServer, 5000);
+            // Send heartbeat every 3 seconds so parent knows we are still active and sharing
+            setInterval(updateServer, 3000);
         } else {
             document.getElementById('status').innerText = 'Geolocation not supported by this browser.';
         }
