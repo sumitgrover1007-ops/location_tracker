@@ -16,17 +16,33 @@
     <script>
         let lastLat = null;
         let lastLng = null;
+        let lastAccuracy = null;
+
+        // Fixes with an error radius bigger than this (in meters) are ignored.
+        // Raise it (e.g. 50) if you test indoors and nothing gets through.
+        const MAX_ACCURACY_METERS = 30;
 
         function sendLocation(position) {
+            const accuracy = position.coords.accuracy; // error radius in meters
+
+            // Skip poor readings instead of sending them to the parent
+            if (accuracy > MAX_ACCURACY_METERS) {
+                document.getElementById('status').innerText =
+                    `Waiting for a better GPS fix (±${Math.round(accuracy)} m)...`;
+                return;
+            }
+
             lastLat = position.coords.latitude;
             lastLng = position.coords.longitude;
+            lastAccuracy = accuracy;
             updateServer();
         }
 
         function updateServer() {
             if (lastLat === null || lastLng === null) return;
             
-            document.getElementById('status').innerText = `Location sent: ${lastLat.toFixed(4)}, ${lastLng.toFixed(4)}`;
+            document.getElementById('status').innerText =
+                `Location sent: ${lastLat.toFixed(6)}, ${lastLng.toFixed(6)} (±${Math.round(lastAccuracy)} m)`;
             
             fetch('/update_location', {
                 method: 'POST',
@@ -42,7 +58,9 @@
         if (navigator.geolocation) {
             // watchPosition only fires when location changes.
             navigator.geolocation.watchPosition(sendLocation, error, {
-                enableHighAccuracy: true
+                enableHighAccuracy: true,
+                maximumAge: 0,     // never reuse an old cached position
+                timeout: 15000
             });
             // Send heartbeat every 5 seconds so parent knows we are still active and sharing
             setInterval(updateServer, 5000);
